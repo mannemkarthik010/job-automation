@@ -1,0 +1,21 @@
+# Secrets — NEVER commit these
+.env
+google_creds.json
+*.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Logs (kept locally, not in repo)
+logs/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,72 @@
+name: Morning Job Application Run
+
+on:
+  # ── Automatic: runs every day at 6:00 AM PST (14:00 UTC) ──────────────────
+  schedule:
+    - cron: '0 14 * * *'
+
+  # ── Manual: lets you trigger a run from GitHub Actions tab any time ────────
+  workflow_dispatch:
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60       # kill if it runs longer than 1 hour
+
+    steps:
+      # ── 1. Check out your repo ─────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python ──────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # ── 3. Cache pip dependencies ─────────────────────────────────────────
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      # ── 4. Install dependencies ───────────────────────────────────────────
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── 5. Create logs directory ──────────────────────────────────────────
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      # ── 6. Write Google credentials from secret ───────────────────────────
+      #    The GOOGLE_SHEETS_CREDS secret should contain the ENTIRE JSON content
+      #    of your service account key file (not a file path).
+      - name: Write Google credentials
+        run: echo '${{ secrets.GOOGLE_SHEETS_CREDS }}' > google_creds.json
+
+      # ── 7. Run the automation ─────────────────────────────────────────────
+      - name: Run morning job application workflow
+        env:
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SHEETS_CREDS: google_creds.json
+          SPREADSHEET_ID:      ${{ secrets.SPREADSHEET_ID }}
+          # Applicant profile (update these in GitHub Secrets)
+          APPLICANT_NAME:               ${{ secrets.APPLICANT_NAME }}
+          APPLICANT_DEGREE:             ${{ secrets.APPLICANT_DEGREE }}
+          APPLICANT_UNIVERSITY:         ${{ secrets.APPLICANT_UNIVERSITY }}
+          APPLICANT_GRADUATION:         ${{ secrets.APPLICANT_GRADUATION }}
+          APPLICANT_GPA:                ${{ secrets.APPLICANT_GPA }}
+          APPLICANT_WORK_AUTH:          ${{ secrets.APPLICANT_WORK_AUTH }}
+          APPLICANT_NEEDS_SPONSORSHIP:  ${{ secrets.APPLICANT_NEEDS_SPONSORSHIP }}
+        run: python main.py
+
+      # ── 8. Upload logs as artifact (viewable in Actions tab) ──────────────
+      - name: Upload run logs
+        if: always()       # upload even if the run fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-logs-${{ github.run_number }}
+          path: logs/
+          retention-days: 30
