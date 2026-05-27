@@ -88,6 +88,7 @@ def search_jobs() -> list[dict]:
             model="claude-opus-4-5",
             max_tokens=8192,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            tool_choice={"type": "auto"},
             messages=[{"role": "user", "content": _build_search_prompt()}],
         )
 
