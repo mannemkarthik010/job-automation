@@ -80,3 +80,4 @@ jobs:
           name: run-logs-${{ github.run_number }}
           path: logs/
           retention-days: 30
+          if-no-files-found: ignore
