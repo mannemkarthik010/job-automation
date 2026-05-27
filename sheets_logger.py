@@ -34,39 +34,42 @@ SCOPES = [
 # ─── Connection ───────────────────────────────────────────────────────────────
 
 def _get_client() -> gspread.Client:
-    creds_value = GOOGLE_SHEETS_CREDS
+    """
+    Build credentials directly from the JSON string in the environment.
+    Bypasses all file reading to avoid JSON corruption issues.
+    """
+    import json
 
-    # If it looks like JSON content, write to a temp file first
-    if creds_value.strip().startswith("{"):
-        import tempfile
-        # Clean up any leading/trailing whitespace or newlines
-        cleaned = creds_value.strip()
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(cleaned)
-            tmp_path = f.name
+    creds_value = GOOGLE_SHEETS_CREDS.strip()
+
+    # If it's a JSON string (GitHub Actions), parse it directly as a dict
+    if creds_value.startswith("{"):
         try:
-            creds = Credentials.from_service_account_file(tmp_path, scopes=SCOPES)
-        finally:
-            os.unlink(tmp_path)
+            service_account_info = json.loads(creds_value)
+        except json.JSONDecodeError:
+            # Try to fix common issues: leading/trailing garbage chars
+            # Find the first { and last } and extract just that
+            start = creds_value.index("{")
+            end   = creds_value.rindex("}") + 1
+            service_account_info = json.loads(creds_value[start:end])
+
+        creds = Credentials.from_service_account_info(
+            service_account_info, scopes=SCOPES
+        )
+
+    # If it's a file path (local development)
     else:
-        # It's a file path — read and clean it
         with open(creds_value, "r", encoding="utf-8") as f:
             raw = f.read().strip()
-        import tempfile
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(raw)
-            tmp_path = f.name
-        try:
-            creds = Credentials.from_service_account_file(tmp_path, scopes=SCOPES)
-        finally:
-            os.unlink(tmp_path)
+            start = raw.index("{")
+            end   = raw.rindex("}") + 1
+            service_account_info = json.loads(raw[start:end])
+
+        creds = Credentials.from_service_account_info(
+            service_account_info, scopes=SCOPES
+        )
 
     return gspread.authorize(creds)
-
 
 def _get_spreadsheet():
     return _get_client().open_by_key(SPREADSHEET_ID)
