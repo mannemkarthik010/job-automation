@@ -34,41 +34,34 @@ SCOPES = [
 # ─── Connection ───────────────────────────────────────────────────────────────
 
 def _get_client() -> gspread.Client:
-    """
-    Build credentials directly from the JSON string in the environment.
-    Bypasses all file reading to avoid JSON corruption issues.
-    """
     import json
 
-    creds_value = GOOGLE_SHEETS_CREDS.strip()
+    creds_value = os.environ.get("GOOGLE_SHEETS_CREDS", "").strip()
 
-    # If it's a JSON string (GitHub Actions), parse it directly as a dict
+    if not creds_value:
+        raise ValueError("GOOGLE_SHEETS_CREDS environment variable is empty or not set.")
+
+    # If it's JSON content (GitHub Actions secret)
     if creds_value.startswith("{"):
         try:
             service_account_info = json.loads(creds_value)
         except json.JSONDecodeError:
-            # Try to fix common issues: leading/trailing garbage chars
-            # Find the first { and last } and extract just that
+            # Extract just the { ... } block in case of surrounding whitespace
             start = creds_value.index("{")
             end   = creds_value.rindex("}") + 1
             service_account_info = json.loads(creds_value[start:end])
-
-        creds = Credentials.from_service_account_info(
-            service_account_info, scopes=SCOPES
-        )
 
     # If it's a file path (local development)
     else:
         with open(creds_value, "r", encoding="utf-8") as f:
             raw = f.read().strip()
-            start = raw.index("{")
-            end   = raw.rindex("}") + 1
-            service_account_info = json.loads(raw[start:end])
+        start = raw.index("{")
+        end   = raw.rindex("}") + 1
+        service_account_info = json.loads(raw[start:end])
 
-        creds = Credentials.from_service_account_info(
-            service_account_info, scopes=SCOPES
-        )
-
+    creds = Credentials.from_service_account_info(
+        service_account_info, scopes=SCOPES
+    )
     return gspread.authorize(creds)
 
 def _get_spreadsheet():
