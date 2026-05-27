@@ -47,6 +47,15 @@ jobs:
         env:
           GOOGLE_CREDS_CONTENT: ${{ secrets.GOOGLE_SHEETS_CREDS }}
         run: echo "$GOOGLE_CREDS_CONTENT" > google_creds.json
+
+      - name: Debug credentials file
+        run: |
+          echo "File size:"
+          wc -c google_creds.json
+          echo "First 50 chars (hex):"
+          head -c 50 google_creds.json | xxd
+          echo "Python JSON parse test:"
+          python3 -c "import json; f=open('google_creds.json'); d=json.load(f); print('OK - type:', d.get('type'))"
         
       # ── 7. Run the automation ─────────────────────────────────────────────
       - name: Run morning job application workflow
