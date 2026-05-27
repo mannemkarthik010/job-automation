@@ -34,23 +34,36 @@ SCOPES = [
 # ─── Connection ───────────────────────────────────────────────────────────────
 
 def _get_client() -> gspread.Client:
-    """
-    Supports both:
-    - Local: path to a JSON file (GOOGLE_SHEETS_CREDS = 'google_creds.json')
-    - GitHub Actions: the entire JSON content as a secret string
-    """
     creds_value = GOOGLE_SHEETS_CREDS
 
-    # If it looks like JSON content (GitHub Actions secret), parse it directly
+    # If it looks like JSON content, write to a temp file first
     if creds_value.strip().startswith("{"):
         import tempfile
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            f.write(creds_value)
+        # Clean up any leading/trailing whitespace or newlines
+        cleaned = creds_value.strip()
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(cleaned)
             tmp_path = f.name
-        creds = Credentials.from_service_account_file(tmp_path, scopes=SCOPES)
-        os.unlink(tmp_path)
+        try:
+            creds = Credentials.from_service_account_file(tmp_path, scopes=SCOPES)
+        finally:
+            os.unlink(tmp_path)
     else:
-        creds = Credentials.from_service_account_file(creds_value, scopes=SCOPES)
+        # It's a file path — read and clean it
+        with open(creds_value, "r", encoding="utf-8") as f:
+            raw = f.read().strip()
+        import tempfile
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(raw)
+            tmp_path = f.name
+        try:
+            creds = Credentials.from_service_account_file(tmp_path, scopes=SCOPES)
+        finally:
+            os.unlink(tmp_path)
 
     return gspread.authorize(creds)
 
