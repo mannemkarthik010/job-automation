@@ -43,11 +43,7 @@ jobs:
       # ── 6. Write Google credentials from secret ───────────────────────────
       #    The GOOGLE_SHEETS_CREDS secret should contain the ENTIRE JSON content
       #    of your service account key file (not a file path).
-      # DELETE THIS ENTIRE STEP
-      - name: Write Google credentials
-        env:
-          GOOGLE_CREDS_CONTENT: ${{ secrets.GOOGLE_SHEETS_CREDS }}
-        run: echo "$GOOGLE_CREDS_CONTENT" > google_creds.json
+      
 
       - name: Debug credentials file
         run: |
@@ -62,7 +58,7 @@ jobs:
       - name: Run morning job application workflow
         env:
           ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_SHEETS_CREDS: google_creds.json
+          GOOGLE_SHEETS_CREDS: ${{ secrets.GOOGLE_SHEETS_CREDS }}
           SPREADSHEET_ID:      ${{ secrets.SPREADSHEET_ID }}
           # Applicant profile (update these in GitHub Secrets)
           APPLICANT_NAME:               ${{ secrets.APPLICANT_NAME }}
