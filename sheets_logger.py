@@ -2,7 +2,8 @@
 sheets_logger.py
 ─────────────────────────────────────────────
 Handles all Google Sheets read/write operations.
-Only logs Applied and Pending Review jobs — skipped jobs are never written.
+Credentials come in as a JSON string via environment variable.
+No file writing needed.
 """
 
 import logging
@@ -14,7 +15,6 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 from config import (
-    GOOGLE_SHEETS_CREDS,
     SPREADSHEET_ID,
     SHEET_APPLIED,
     SHEET_PENDING,
@@ -31,51 +31,55 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
-# ─── Connection ───────────────────────────────────────────────────────────────
 
 def _get_client() -> gspread.Client:
-    import json
+    """
+    Build credentials directly from the JSON string in the environment.
+    Works for both GitHub Actions (JSON string) and local (file path).
+    """
+    raw = os.environ.get("GOOGLE_SHEETS_CREDS", "").strip()
 
-    creds_value = os.environ.get("GOOGLE_SHEETS_CREDS", "").strip()
+    if not raw:
+        raise ValueError(
+            "GOOGLE_SHEETS_CREDS is empty. "
+            "Add it as a GitHub Secret (paste the full JSON content)."
+        )
 
-    if not creds_value:
-        raise ValueError("GOOGLE_SHEETS_CREDS environment variable is empty or not set.")
-
-    # If it's JSON content (GitHub Actions secret)
-    if creds_value.startswith("{"):
-        try:
-            service_account_info = json.loads(creds_value)
-        except json.JSONDecodeError:
-            # Extract just the { ... } block in case of surrounding whitespace
-            start = creds_value.index("{")
-            end   = creds_value.rindex("}") + 1
-            service_account_info = json.loads(creds_value[start:end])
-
-    # If it's a file path (local development)
-    else:
-        with open(creds_value, "r", encoding="utf-8") as f:
-            raw = f.read().strip()
+    # GitHub Actions: value is the JSON content itself
+    if raw.startswith("{"):
+        # Find the outermost { } in case of any surrounding whitespace
         start = raw.index("{")
         end   = raw.rindex("}") + 1
-        service_account_info = json.loads(raw[start:end])
+        info  = json.loads(raw[start:end])
 
-    creds = Credentials.from_service_account_info(
-        service_account_info, scopes=SCOPES
-    )
+    # Local development: value is a file path
+    else:
+        if not os.path.exists(raw):
+            raise FileNotFoundError(
+                f"GOOGLE_SHEETS_CREDS points to '{raw}' but that file does not exist."
+            )
+        with open(raw, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        start = content.index("{")
+        end   = content.rindex("}") + 1
+        info  = json.loads(content[start:end])
+
+    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     return gspread.authorize(creds)
 
+
 def _get_spreadsheet():
-    return _get_client().open_by_key(SPREADSHEET_ID)
+    sid = SPREADSHEET_ID.strip()
+    if not sid:
+        raise ValueError(
+            "SPREADSHEET_ID is empty. "
+            "Add it as a GitHub Secret (just the ID from the Google Sheet URL)."
+        )
+    return _get_client().open_by_key(sid)
 
-
-# ─── Sheet Setup ──────────────────────────────────────────────────────────────
 
 def ensure_sheets_exist():
-    """
-    Create all required tabs if they don't already exist,
-    and add header rows to new tabs.
-    """
-    ss = _get_spreadsheet()
+    ss       = _get_spreadsheet()
     existing = [ws.title for ws in ss.worksheets()]
 
     tabs = {
@@ -112,15 +116,12 @@ def ensure_sheets_exist():
             ws.append_row(headers, value_input_option="RAW")
             logger.info(f"Created sheet tab: {tab_name}")
         else:
-            logger.debug(f"Sheet tab already exists: {tab_name}")
+            logger.debug(f"Tab already exists: {tab_name}")
 
-
-# ─── Duplicate Check ──────────────────────────────────────────────────────────
 
 def is_duplicate(company: str, title: str) -> bool:
-    """Return True if this company+title combo already exists in Applied Jobs."""
     try:
-        ws = _get_spreadsheet().worksheet(SHEET_APPLIED)
+        ws      = _get_spreadsheet().worksheet(SHEET_APPLIED)
         records = ws.get_all_records()
         for row in records:
             if (str(row.get("Company Name", "")).lower() == company.lower() and
@@ -129,79 +130,63 @@ def is_duplicate(company: str, title: str) -> bool:
         return False
     except Exception as e:
         logger.error(f"Duplicate check failed: {e}")
-        return False  # If check fails, don't block the application
+        return False
 
-
-# ─── Log Applied Job ──────────────────────────────────────────────────────────
 
 def log_applied(job: dict, score: int, cover_letter_used: bool) -> bool:
-    """Write one row to the Applied Jobs tab."""
     try:
-        ws = _get_spreadsheet().worksheet(SHEET_APPLIED)
+        ws            = _get_spreadsheet().worksheet(SHEET_APPLIED)
         followup_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
-
         ws.append_row([
-            datetime.now().strftime("%Y-%m-%d %H:%M"),   # Date Applied
-            job.get("company", ""),                       # Company Name
-            job.get("title", ""),                         # Job Title
-            job.get("location", ""),                      # Location
-            job.get("link", ""),                          # Job Link
-            job.get("source", ""),                        # Source
-            job.get("job_type", ""),                      # Job Type
-            job.get("skills", ""),                        # Required Skills
-            job.get("experience", ""),                    # Experience Required
-            score,                                        # Resume Match Score
-            RESUME_VERSION,                               # Resume Version
-            "Yes" if cover_letter_used else "No",         # Cover Letter Used
-            "",                                           # Confirmation Received
-            followup_date,                                # Follow-Up Date
-            "Applied",                                    # Current Status
-            "",                                           # Notes
+            datetime.now().strftime("%Y-%m-%d %H:%M"),
+            job.get("company", ""),
+            job.get("title", ""),
+            job.get("location", ""),
+            job.get("link", ""),
+            job.get("source", ""),
+            job.get("job_type", ""),
+            job.get("skills", ""),
+            job.get("experience", ""),
+            score,
+            RESUME_VERSION,
+            "Yes" if cover_letter_used else "No",
+            "",
+            followup_date,
+            "Applied",
+            "",
         ], value_input_option="RAW")
-
-        # Also add to follow-up tracker
         _add_followup(job, followup_date)
         return True
-
     except Exception as e:
         logger.error(f"Failed to log applied job {job.get('title')}: {e}")
         return False
 
 
-# ─── Log Pending Review ───────────────────────────────────────────────────────
-
 def log_pending(job: dict, score: int, reason: str, question: str) -> bool:
-    """Write one row to the Pending Review tab."""
     try:
         ws = _get_spreadsheet().worksheet(SHEET_PENDING)
-
         ws.append_row([
-            datetime.now().strftime("%Y-%m-%d"),   # Date Found
-            job.get("company", ""),                # Company Name
-            job.get("title", ""),                  # Job Title
-            job.get("location", ""),               # Location
-            job.get("link", ""),                   # Job Link
-            score,                                 # Resume Match Score
-            reason,                                # Reason for Review
-            question,                              # Question Asked
-            "",                                    # Recommended Answer
-            "",                                    # User Decision
-            "Waiting",                             # Status
+            datetime.now().strftime("%Y-%m-%d"),
+            job.get("company", ""),
+            job.get("title", ""),
+            job.get("location", ""),
+            job.get("link", ""),
+            score,
+            reason,
+            question,
+            "",
+            "",
+            "Waiting",
         ], value_input_option="RAW")
         return True
-
     except Exception as e:
         logger.error(f"Failed to log pending job {job.get('title')}: {e}")
         return False
 
 
-# ─── Log Daily Summary ────────────────────────────────────────────────────────
-
 def log_daily_summary(stats: dict) -> bool:
-    """Append one row to the Daily Progress tab."""
     try:
         ws = _get_spreadsheet().worksheet(SHEET_PROGRESS)
-
         ws.append_row([
             datetime.now().strftime("%Y-%m-%d"),
             stats.get("searched", 0),
@@ -215,13 +200,10 @@ def log_daily_summary(stats: dict) -> bool:
             stats.get("recommendations", ""),
         ], value_input_option="RAW")
         return True
-
     except Exception as e:
         logger.error(f"Failed to log daily summary: {e}")
         return False
 
-
-# ─── Internal Helpers ─────────────────────────────────────────────────────────
 
 def _add_followup(job: dict, followup_date: str):
     try:
