@@ -44,7 +44,12 @@ jobs:
       #    The GOOGLE_SHEETS_CREDS secret should contain the ENTIRE JSON content
       #    of your service account key file (not a file path).
       - name: Write Google credentials
-        run: echo '${{ secrets.GOOGLE_SHEETS_CREDS }}' > google_creds.json
+        run: |
+          cat > google_creds.json << 'ENDOFCREDS'
+          ${{ secrets.GOOGLE_SHEETS_CREDS }}
+          ENDOFCREDS
+        env:
+          GOOGLE_CREDS: ${{ secrets.GOOGLE_SHEETS_CREDS }}
 
       # ── 7. Run the automation ─────────────────────────────────────────────
       - name: Run morning job application workflow
